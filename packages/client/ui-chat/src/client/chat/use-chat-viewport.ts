@@ -108,7 +108,7 @@ export class ChatViewport {
     const elements = { list, column, scroller, composer, spacer }
     this.elements = elements
     if (typeof MutationObserver !== 'undefined') {
-      this.turnMutations = new MutationObserver(records => this.consumeTurnMutations(records))
+      this.turnMutations = new MutationObserver((records) => { this.consumeTurnMutations(records) })
       this.turnMutations.observe(column, {
         subtree: true,
         childList: true,
