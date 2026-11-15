@@ -32,7 +32,8 @@ function fixture() {
     column.append(element)
     return element
   }
-  const row = (parent: HTMLElement, nodeKey: string, top: number, part?: string, append = true) => {
+  const row = (parent: HTMLElement, nodeKey: string, top: number, part?: string, append = true,
+    measurements?: { count: number }) => {
     const element = document.createElement('div')
     element.textContent = nodeKey
     element.dataset.chatNodeKey = nodeKey
@@ -41,8 +42,12 @@ function fixture() {
     element.dataset.chatPagingAnchor = ''
     element.dataset.chatTurn = '1'
     if (append) parent.append(element)
-    vi.spyOn(element, 'getBoundingClientRect').mockImplementation(() =>
-      new DOMRect(0, top + prependedHeight - column.scrollTop, 500, 60))
+    const measure = () => {
+      if (measurements !== undefined) measurements.count++
+      return new DOMRect(0, top + prependedHeight - column.scrollTop, 500, 60)
+    }
+    if (measurements === undefined) vi.spyOn(element, 'getBoundingClientRect').mockImplementation(measure)
+    else Object.defineProperty(element, 'getBoundingClientRect', { configurable: true, value: measure })
     return element
   }
   return { column, viewport, group, row, prepend: (height: number) => { prependedHeight += height } }
@@ -58,8 +63,9 @@ it.each([
     parent.dataset.slot = 'conversation.chat.flow'
     parent.style.display = 'contents'
   }
+  const measurements = { count: 0 }
   const rows = Array.from({ length: count }, (_, index) => {
-    const row = h.row(parent, `turn-${index + 1}`, index * 100, undefined, false)
+    const row = h.row(parent, `turn-${index + 1}`, index * 100, undefined, false, measurements)
     row.dataset.chatTurn = String(index + 1)
     return row
   })
@@ -75,12 +81,11 @@ it.each([
   const query = vi.spyOn(h.column, 'querySelectorAll')
 
   expect(h.viewport.readVisibleTurn()).toBe(selected + 1)
-  for (const row of rows) vi.spyOn(row, 'getBoundingClientRect').mockClear()
+  measurements.count = 0
   expect(h.viewport.readVisibleTurn()).toBe(selected + 1)
   expect(hitTest).not.toHaveBeenCalled()
   expect(query).not.toHaveBeenCalled()
-  const measurements = rows.reduce((sum, row) => sum + vi.spyOn(row, 'getBoundingClientRect').mock.calls.length, 0)
-  expect(measurements).toBeLessThanOrEqual(Math.ceil(Math.log2(count)) + 1)
+  expect(measurements.count).toBeLessThanOrEqual(Math.ceil(Math.log2(count)) + 1)
 })
 
 it('uses outer group geometry and keeps the preceding Turn in a gap', () => {
