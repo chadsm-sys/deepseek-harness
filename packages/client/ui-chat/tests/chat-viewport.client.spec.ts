@@ -32,8 +32,7 @@ function fixture() {
     column.append(element)
     return element
   }
-  const row = (parent: HTMLElement, nodeKey: string, top: number, part?: string, append = true,
-    measurements?: { count: number }) => {
+  const row = (parent: HTMLElement, nodeKey: string, top: number, part?: string, append = true) => {
     const element = document.createElement('div')
     element.textContent = nodeKey
     element.dataset.chatNodeKey = nodeKey
@@ -42,12 +41,8 @@ function fixture() {
     element.dataset.chatPagingAnchor = ''
     element.dataset.chatTurn = '1'
     if (append) parent.append(element)
-    const measure = () => {
-      if (measurements !== undefined) measurements.count++
-      return new DOMRect(0, top + prependedHeight - column.scrollTop, 500, 60)
-    }
-    if (measurements === undefined) vi.spyOn(element, 'getBoundingClientRect').mockImplementation(measure)
-    else Object.defineProperty(element, 'getBoundingClientRect', { configurable: true, value: measure })
+    vi.spyOn(element, 'getBoundingClientRect').mockImplementation(() =>
+      new DOMRect(0, top + prependedHeight - column.scrollTop, 500, 60))
     return element
   }
   return { column, viewport, group, row, prepend: (height: number) => { prependedHeight += height } }
@@ -64,15 +59,20 @@ it.each([
     parent.style.display = 'contents'
   }
   const measurements = { count: 0 }
+  const measure = function (this: HTMLElement) {
+    measurements.count++
+    return new DOMRect(0, (Number(this.dataset.chatTurn) - 1) * 100 - h.column.scrollTop, 500, 60)
+  }
   const rows = Array.from({ length: count }, (_, index) => {
-    const row = h.row(parent, `turn-${index + 1}`, index * 100, undefined, false, measurements)
+    const row = document.createElement('div')
     row.dataset.chatTurn = String(index + 1)
+    Object.defineProperty(row, 'getBoundingClientRect', { configurable: true, value: measure })
     return row
   })
   parent.append(...rows)
   if (slot) h.column.append(parent)
   h.viewport.updateTurns(rows.map((row, index) => ({
-    turn: index + 1, anchorKey: row.dataset.chatAnchorKey!, prompt: '', response: '',
+    turn: index + 1, anchorKey: `turn-${index + 1}`, prompt: '', response: '',
   })))
   const selected = Math.floor(count * 0.73)
   h.column.scrollTop = selected * 100 + 10
