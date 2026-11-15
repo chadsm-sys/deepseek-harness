@@ -71,7 +71,7 @@ it.each([
   })
   parent.append(...rows)
   if (slot) h.column.append(parent)
-  h.viewport.updateTurns(rows.map((row, index) => ({
+  h.viewport.updateTurns(rows.map((_, index) => ({
     turn: index + 1, anchorKey: `turn-${index + 1}`, prompt: '', response: '',
   })))
   const selected = Math.floor(count * 0.73)
