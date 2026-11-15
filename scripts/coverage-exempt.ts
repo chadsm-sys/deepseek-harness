@@ -48,6 +48,10 @@ export const coverageExemptHeavySuites: readonly CoverageExemptSuite[] = [
   { filter: 'scripts/install-lefthook.spec.ts', exclude: 'scripts/install-lefthook.spec.ts' },
   { filter: 'scripts/oxlint-contract.spec.ts', exclude: 'scripts/oxlint-contract.spec.ts' },
   { filter: 'scripts/change-scope.spec.ts', exclude: 'scripts/change-scope.spec.ts' },
+  // TypeScript compiler fixtures analyze package sources as data; they never
+  // execute coverage-measured package runtime code. Keep every schema assertion
+  // in the plain lane without paying V8's compiler instrumentation overhead.
+  { filter: 'scripts/persistence-schema.spec.ts', exclude: 'scripts/persistence-schema.spec.ts' },
   // Built-artifact proof. Packer/runtime src is threshold-excluded, and the
   // suite self-skips on unbuilt checkouts; the serial-windows complete
   // reference still starts this uninstrumented gate after its build gate, so
