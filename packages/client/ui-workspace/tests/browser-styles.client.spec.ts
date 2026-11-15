@@ -120,7 +120,9 @@ describe('WorkspaceBrowser.module.css list', () => {
     // span itself so the status slot beside it keeps its full color.
     expect(rowDeclarations('.sessionRow .title')?.get('flex')).toBe('1')
     expect(rowDeclarations('.sessionRow .title')?.get('scroll-behavior')).toBeUndefined()
-    expect(rowDeclarations('.sessionRow:hover .title')?.get('text-overflow')).toBe('clip')
+    const hoverMedia = /@media \(hover: hover\)\s*\{([\s\S]*?)\n\}/.exec(rowsCss)?.[1]
+    expect(hoverMedia).toBeDefined()
+    expect(declarationsFrom(hoverMedia!, '.sessionRow:hover .title')?.get('text-overflow')).toBe('clip')
     expect(rowDeclarations('.sessionRow .title[data-scrolled]')?.get('mask-image'))
       .toBe('linear-gradient(to right, transparent, #000 12px)')
     expect(rowDeclarations('.sessionRow .title[data-clipped]')?.get('mask-image'))
