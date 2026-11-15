@@ -4045,36 +4045,43 @@ describe('ChatView', () => {
     expect(view.getByLabelText('回到底部')).toBeTruthy()
   })
 
-  it('one ResizeObserver owns pinned dynamic-height follow and ignores growth while away', () => {
-    let notify: (() => void) | undefined
-    const observe = vi.fn<(element: Element) => void>()
-    class ResizeObserverStub {
-      constructor(callback: ResizeObserverCallback) {
-        notify = () => { callback([], this as unknown as ResizeObserver) }
-      }
-
-      observe = observe
-      disconnect = vi.fn()
+  it('viewport resize observation owns pinned follow separately from row membership', () => {
+    const observers = new Set<ResizeObserverStub>()
+    class ResizeObserverStub implements ResizeObserver {
+      readonly targets = new Set<Element>()
+      constructor(private readonly callback: ResizeObserverCallback) { observers.add(this) }
+      observe(target: Element): void { this.targets.add(target) }
+      unobserve(target: Element): void { this.targets.delete(target) }
+      disconnect(): void { this.targets.clear() }
+      notify(): void { this.callback([], this) }
     }
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
     const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
     const view = render(<h.ChatView {...h.props} />)
     const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    const sizeObserver = [...observers].find(observer => observer.targets.has(scroller))
+    expect(sizeObserver).toBeDefined()
     Object.defineProperty(scroller, 'scrollHeight', { value: 1_000, writable: true })
     Object.defineProperty(scroller, 'clientHeight', { value: 300, writable: true })
     scroller.scrollTop = 700
     fireEvent.scroll(scroller)
     fireEvent(scroller, new Event('scrollend'))
     Object.defineProperty(scroller, 'scrollHeight', { value: 1_200, writable: true })
-    act(() => { notify?.() })
+    act(() => { sizeObserver!.notify() })
     expect(scroller.scrollTop).toBe(900)
     readerScroll(scroller, 200)
     Object.defineProperty(scroller, 'scrollHeight', { value: 1_400, writable: true })
-    act(() => { notify?.() })
+    act(() => { sizeObserver!.notify() })
     expect(scroller.scrollTop).toBe(200)
-    expect(observe.mock.calls.map(([element]) => element)).toEqual([
+    expect([...sizeObserver!.targets]).toEqual([
       view.container.querySelector('[data-chat-flow]'), scroller,
     ])
+    const rowTargets = [...observers].filter(observer => observer !== sizeObserver)
+      .flatMap(observer => [...observer.targets])
+    expect(rowTargets.length).toBeGreaterThan(0)
+    expect(rowTargets.every(element => element.matches('[data-chat-turn]'))).toBe(true)
+    view.unmount()
+    expect([...observers].every(observer => observer.targets.size === 0)).toBe(true)
   })
 
   it('pinned dynamic-height updates select the latest Turn without reading row geometry', async () => {
