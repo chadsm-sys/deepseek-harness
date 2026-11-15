@@ -10,7 +10,7 @@ function declarations(selector: string): Map<string, string> | undefined {
   const rules = media.replace(/\/\*[\s\S]*?\*\//g, ' ')
   for (const [, selectors = '', body = ''] of rules.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     if (!selectors.split(',').map(value => value.trim()).includes(selector)) continue
-    return new Map(body.split(';').flatMap(part => {
+    return new Map(body.split(';').flatMap((part) => {
       const colon = part.indexOf(':')
       return colon === -1 ? [] : [[part.slice(0, colon).trim(), part.slice(colon + 1).trim()]]
     }))

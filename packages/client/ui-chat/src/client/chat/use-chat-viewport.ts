@@ -121,7 +121,7 @@ export class ChatViewport {
       }
     }
     if (typeof ResizeObserver !== 'undefined') {
-      this.turnResizes = new ResizeObserver(entries => {
+      this.turnResizes = new ResizeObserver((entries) => {
         if (this.elements !== elements) return
         let changed = false
         for (const entry of entries) {
@@ -667,7 +667,8 @@ export class ChatViewport {
     for (let attempt = 0; attempt < 2; attempt++) {
       const index = this.turnIndex ?? this.indexTurnRows(flow)
       const rows = index.rows
-      if (rows.length === 0) return null
+      const first = rows[0]
+      if (first === undefined) return null
       const box = (row: TurnRow): DOMRect | null => {
         if (row.element.parentElement !== flow || row.element.closest('[hidden]') !== null) return null
         const rect = row.element.getBoundingClientRect()
@@ -675,11 +676,11 @@ export class ChatViewport {
       }
       let low = 0
       let high = rows.length
-      let reading = rows[0]!.turn
-      let stale = box(rows[0]!) === null
+      let reading = first.turn
+      let stale = box(first) === null
       while (!stale && low < high) {
         const middle = (low + high) >>> 1
-        const row = rows[middle]!
+        const row = rows[middle] as TurnRow
         const rect = box(row)
         if (rect === null) { stale = true; break }
         if (rect.top > line) high = middle

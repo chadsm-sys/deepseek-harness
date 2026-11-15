@@ -32,7 +32,7 @@ function fixture() {
     column.append(element)
     return element
   }
-  const row = (parent: HTMLElement, nodeKey: string, top: number, part?: string) => {
+  const row = (parent: HTMLElement, nodeKey: string, top: number, part?: string, append = true) => {
     const element = document.createElement('div')
     element.textContent = nodeKey
     element.dataset.chatNodeKey = nodeKey
@@ -40,7 +40,7 @@ function fixture() {
     element.dataset.chatFlowKey = element.dataset.chatAnchorKey
     element.dataset.chatPagingAnchor = ''
     element.dataset.chatTurn = '1'
-    parent.append(element)
+    if (append) parent.append(element)
     vi.spyOn(element, 'getBoundingClientRect').mockImplementation(() =>
       new DOMRect(0, top + prependedHeight - column.scrollTop, 500, 60))
     return element
@@ -57,13 +57,14 @@ it.each([
   if (slot) {
     parent.dataset.slot = 'conversation.chat.flow'
     parent.style.display = 'contents'
-    h.column.append(parent)
   }
   const rows = Array.from({ length: count }, (_, index) => {
-    const row = h.row(parent, `turn-${index + 1}`, index * 100)
+    const row = h.row(parent, `turn-${index + 1}`, index * 100, undefined, false)
     row.dataset.chatTurn = String(index + 1)
     return row
   })
+  parent.append(...rows)
+  if (slot) h.column.append(parent)
   h.viewport.updateTurns(rows.map((row, index) => ({
     turn: index + 1, anchorKey: row.dataset.chatAnchorKey!, prompt: '', response: '',
   })))
