@@ -297,6 +297,26 @@
   }
 }
 
+/* Keep touch rows stable on the first tap: actions occupy their trailing cell
+   before interaction, and touch hover cannot consume timestamp or pin space. */
+@media (max-width: 560px), (max-width: 1023px) and (pointer: coarse) {
+  .sessionRow .rowActions,
+  .searchResultRow .rowActions {
+    display: inline-flex;
+  }
+
+  .sessionRow .time,
+  .sessionRow .pinIndicator {
+    display: none;
+  }
+
+  .sessionRow .title,
+  .sessionRow:hover .title,
+  .sessionRow.menuOpen .title {
+    text-overflow: ellipsis;
+  }
+}
+
 /* An open row menu pins the hover affordances (figma: the row keeps its
    hover fill while its dropdown is up). */
 .projectRow.menuOpen,

@@ -74,6 +74,8 @@ it.each([
   const query = vi.spyOn(h.column, 'querySelectorAll')
 
   expect(h.viewport.readVisibleTurn()).toBe(selected + 1)
+  for (const row of rows) vi.spyOn(row, 'getBoundingClientRect').mockClear()
+  expect(h.viewport.readVisibleTurn()).toBe(selected + 1)
   expect(hitTest).not.toHaveBeenCalled()
   expect(query).not.toHaveBeenCalled()
   const measurements = rows.reduce((sum, row) => sum + vi.spyOn(row, 'getBoundingClientRect').mock.calls.length, 0)
@@ -119,7 +121,7 @@ it('uses outer group geometry and keeps the preceding Turn in a gap', () => {
   expect(h.viewport.readVisibleTurn()).toBe(2)
 })
 
-it('reads only the supplied column and reuses a known Turn landing', () => {
+it('reads only the supplied column and checks live geometry after a known landing', () => {
   const h = fixture()
   const list = document.createElement('div')
   h.column.replaceWith(list)
@@ -140,7 +142,7 @@ it('reads only the supplied column and reuses a known Turn landing', () => {
   expect(h.viewport.scrollToTurn(7)?.turn).toBe(7)
   vi.spyOn(row, 'getBoundingClientRect').mockClear()
   expect(h.viewport.readVisibleTurn()).toBe(7)
-  expect(vi.spyOn(row, 'getBoundingClientRect')).not.toHaveBeenCalled()
+  expect(vi.spyOn(row, 'getBoundingClientRect')).toHaveBeenCalled()
   h.viewport.detach()
   expect(h.viewport.readVisibleTurn()).toBeNull()
 })

@@ -53,6 +53,19 @@ interface PagingPosition {
   readonly group: { readonly body: HTMLElement; readonly content: HTMLElement; readonly top: number } | null
 }
 
+interface TurnRow {
+  readonly element: HTMLElement
+  readonly turn: number
+}
+
+interface TurnRowIndex {
+  readonly flow: HTMLElement
+  readonly rows: TurnRow[]
+  readonly turns: Map<number, TurnRow[]>
+  readonly values: Map<HTMLElement, number>
+  readonly members: Set<HTMLElement>
+}
+
 const READING_INTENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown', 'beforematch'] as const
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
 
@@ -60,6 +73,11 @@ const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home
 export class ChatViewport {
   private elements: ViewportElements | null = null
   private observer: ResizeObserver | null = null
+  /** Rendered row references; screen positions are always read live. */
+  private turnIndex: TurnRowIndex | null = null
+  private turnMutations: MutationObserver | null = null
+  private turnResizes: ResizeObserver | null = null
+  private turnSizes = new Map<HTMLElement, boolean>()
   private events: ViewportEvents | null = null
   private turns: ReturnType<ChatSnapshot['navigation']['items']> = []
   private observation: { top: number; landing: ViewportLanding | null } = { top: 0, landing: null }
@@ -89,6 +107,34 @@ export class ChatViewport {
     const spacer = list.querySelector<HTMLElement>('[data-chat-turn-spacer]')
     const elements = { list, column, scroller, composer, spacer }
     this.elements = elements
+    if (typeof MutationObserver !== 'undefined') {
+      this.turnMutations = new MutationObserver(records => this.consumeTurnMutations(records))
+      this.turnMutations.observe(column, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['hidden', 'class', 'style', 'data-chat-turn', 'data-slot'],
+      })
+      for (let parent = column.parentElement; parent !== null; parent = parent.parentElement) {
+        this.turnMutations.observe(parent, { attributes: true, attributeFilter: ['hidden', 'class', 'style'] })
+      }
+    }
+    if (typeof ResizeObserver !== 'undefined') {
+      this.turnResizes = new ResizeObserver(entries => {
+        if (this.elements !== elements) return
+        let changed = false
+        for (const entry of entries) {
+          const hadSize = this.turnSizes.get(entry.target as HTMLElement)
+          if (hadSize === undefined) continue
+          const hasSize = (entry.target as HTMLElement).getBoundingClientRect().height > 0
+          if (hadSize !== hasSize) changed = true
+          this.turnSizes.set(entry.target as HTMLElement, hasSize)
+        }
+        if (changed) this.invalidateTurnIndex()
+        else this.invalidate()
+      })
+    }
     if (spacer !== null) spacer.style.height = ''
     scroller.addEventListener('scroll', this.onScroll, { passive: true })
     scroller.addEventListener('scrollend', this.onScrollEnd, { passive: true, capture: true })
@@ -116,6 +162,12 @@ export class ChatViewport {
     for (const type of READING_INTENTS) this.elements?.scroller.removeEventListener(type, this.onIntent, true)
     this.observer?.disconnect()
     this.observer = null
+    this.turnMutations?.disconnect()
+    this.turnMutations = null
+    this.turnResizes?.disconnect()
+    this.turnResizes = null
+    this.turnSizes.clear()
+    this.turnIndex = null
     this.elements = null
     this.events = null
     this.tailRequested = false
@@ -140,6 +192,11 @@ export class ChatViewport {
    */
   updateTurns(turns: ReturnType<ChatSnapshot['navigation']['items']>): void {
     this.turns = turns
+    this.invalidateTurnIndex()
+    if (turns.length === 0) {
+      for (const element of this.turnSizes.keys()) this.turnResizes?.unobserve(element)
+      this.turnSizes.clear()
+    }
   }
 
   /**
@@ -526,37 +583,112 @@ export class ChatViewport {
     }
   }
 
-  /**
-   * Approximate the active Turn by binary-searching outer Node/Group boxes.
-   * Gaps retain the last visited Turn candidate, not necessarily the immediate predecessor.
-   * A known landing bypasses measurement while its position is unchanged.
-   * @param metrics - reusable scroll metrics; omitted callers request a fresh read.
-   * @returns the Turn near the reading line, or null while detached or empty.
-   */
-  readVisibleTurn(metrics = this.metrics()): number | null {
-    const knownTurn = this.observation.landing?.turn
-    if (knownTurn != null && metrics?.top === this.observation.top) return knownTurn
-    const elements = this.elements
-    const first = this.turns[0]
-    if (elements === null || metrics === null || first === undefined) return null
-    const line = elements.scroller.getBoundingClientRect().top + Math.min(96, metrics.height * 0.2)
-    // Slot anchors use display:contents: measure their rows, not the anchor's empty box.
-    const rows = (elements.column.querySelector(':scope > [data-slot="conversation.chat.flow"]') ?? elements.column).children
-    let low = 0
-    let high = rows.length
-    let reading = first.turn
-    while (low < high) {
-      const middle = (low + high) >>> 1
-      const row = rows[middle] as Element
-      if (row.getBoundingClientRect().top > line) high = middle
-      else {
-        const value = row.getAttribute('data-chat-turn')
-        const turn = value === null ? NaN : Number(value)
-        if (Number.isSafeInteger(turn)) reading = turn
-        low = middle + 1
+  /** Invalidate row membership separately from scroll-only landing knowledge. */
+  private invalidateTurnIndex(): void {
+    this.turnIndex = null
+    this.invalidate()
+  }
+
+  /** Keep the row index when edits leave direct-row eligibility unchanged. */
+  private consumeTurnMutations(records: MutationRecord[]): void {
+    if (records.length === 0) return
+    this.invalidate()
+    const index = this.turnIndex
+    if (index === null) return
+    const changed = new Set<HTMLElement>()
+    for (const record of records) {
+      let element = record.target instanceof HTMLElement ? record.target : record.target.parentElement
+      if (element === index.flow || element?.contains(index.flow)) {
+        this.invalidateTurnIndex()
+        return
+      }
+      while (element !== null && element.parentElement !== index.flow) element = element.parentElement
+      if (element !== null) changed.add(element)
+    }
+    for (const element of changed) {
+      const value = element.getAttribute('data-chat-turn')
+      const turn = value === null ? Number.NaN : Number(value)
+      const valid = Number.isSafeInteger(turn)
+      const rendered = valid && element.closest('[hidden]') === null && element.getBoundingClientRect().height > 0
+      if ((valid ? turn : undefined) !== index.values.get(element) || rendered !== index.members.has(element)) {
+        this.invalidateTurnIndex()
+        return
       }
     }
-    return reading
+  }
+
+  /** Rebuild after DOM or visibility changes, never just because the reader scrolled. */
+  private indexTurnRows(flow: HTMLElement): TurnRowIndex {
+    const rows: TurnRow[] = []
+    const turns = new Map<number, TurnRow[]>()
+    const values = new Map<HTMLElement, number>()
+    const members = new Set<HTMLElement>()
+    const sizes = new Map<HTMLElement, boolean>()
+    for (const element of flow.children) {
+      const row = element as HTMLElement
+      const value = row.getAttribute('data-chat-turn')
+      const turn = value === null ? Number.NaN : Number(value)
+      if (!Number.isSafeInteger(turn)) continue
+      values.set(row, turn)
+      const hasSize = row.getBoundingClientRect().height > 0
+      sizes.set(row, hasSize)
+      if (!this.turnSizes.has(row)) this.turnResizes?.observe(row)
+      if (!hasSize || row.closest('[hidden]') !== null) continue
+      const indexed = { element: row, turn }
+      rows.push(indexed)
+      members.add(row)
+      const parts = turns.get(turn)
+      if (parts === undefined) turns.set(turn, [indexed])
+      else parts.push(indexed)
+    }
+    for (const element of this.turnSizes.keys()) {
+      if (!sizes.has(element)) this.turnResizes?.unobserve(element)
+    }
+    this.turnSizes = sizes
+    const index = { flow, rows, turns, values, members }
+    this.turnIndex = index
+    return index
+  }
+
+  /**
+   * Find the rendered Turn at the reading line with live geometry and logarithmic probes.
+   * Mutation records are consumed synchronously so same-task hides cannot use a stale row index.
+   * @param metrics - reusable scroll metrics; omitted callers request a fresh read.
+   * @returns the Turn at the reading line, or null while detached or empty.
+   */
+  readVisibleTurn(metrics = this.metrics()): number | null {
+    const elements = this.elements
+    if (elements === null || metrics === null || this.turns.length === 0) return null
+    if (this.turnMutations === null) this.invalidateTurnIndex()
+    else this.consumeTurnMutations(this.turnMutations.takeRecords())
+    const flow = elements.column.querySelector<HTMLElement>(':scope > [data-slot="conversation.chat.flow"]') ?? elements.column
+    if (flow !== this.turnIndex?.flow) this.invalidateTurnIndex()
+    const line = elements.scroller.getBoundingClientRect().top + Math.min(96, metrics.height * 0.2)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const index = this.turnIndex ?? this.indexTurnRows(flow)
+      const rows = index.rows
+      if (rows.length === 0) return null
+      const box = (row: TurnRow): DOMRect | null => {
+        if (row.element.parentElement !== flow || row.element.closest('[hidden]') !== null) return null
+        const rect = row.element.getBoundingClientRect()
+        return rect.height > 0 ? rect : null
+      }
+      let low = 0
+      let high = rows.length
+      let reading = rows[0]!.turn
+      let stale = box(rows[0]!) === null
+      while (!stale && low < high) {
+        const middle = (low + high) >>> 1
+        const row = rows[middle]!
+        const rect = box(row)
+        if (rect === null) { stale = true; break }
+        if (rect.top > line) high = middle
+        else { reading = row.turn; low = middle + 1 }
+      }
+      if (!stale) return reading
+      this.invalidateTurnIndex()
+    }
+    return null
   }
 
   /**
