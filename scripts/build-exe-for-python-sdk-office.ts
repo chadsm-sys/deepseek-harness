@@ -37,13 +37,16 @@ export async function runtimeNpmArchive(name: string, version: string, lockfile 
  * Lock the installed Office closure to published npm tarballs, preserving nested dependency locations.
  * @param staging - Complete installed Node closure.
  * @param target - Sidecar platform and CPU.
+ * @param lockfile - Workspace lock recording the reviewed package graph.
  * @returns Download records for the selected engine and all dependencies.
  */
-export async function officeSidecarArchives(staging: string, target: { platform: string; arch: string }): Promise<OfficePackageArchive[]> {
+export async function officeSidecarArchives(
+  staging: string, target: { platform: string; arch: string }, lockfile?: string,
+): Promise<OfficePackageArchive[]> {
   const directories = await officePackageDirectories(staging, target)
   return Promise.all(directories.map(async (directory) => {
     const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')) as { name: string; version: string }
-    return { ...await runtimeNpmArchive(manifest.name, manifest.version), directory: relative(staging, directory).split(sep).join('/') }
+    return { ...await runtimeNpmArchive(manifest.name, manifest.version, lockfile), directory: relative(staging, directory).split(sep).join('/') }
   }))
 }
 

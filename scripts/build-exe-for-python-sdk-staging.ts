@@ -14,7 +14,7 @@ function isHoistedLocations(value: unknown): value is Record<string, string[]> {
  * Different peer resolutions and third-party packages keep their installed locations.
  * All metadata paths are checked before deletion; the caller first materializes links.
  * @param staging - Symlink-free deployed payload root.
- * @param workspace - Workspace root relative to which pnpm records hoisted locations.
+ * @param workspace - Workspace root used by pnpm legacy-deploy metadata.
  */
 export async function deduplicateStagedWorkspacePackages(staging: string, workspace: string): Promise<void> {
   const modules = resolve(staging, 'node_modules')
@@ -27,7 +27,20 @@ export async function deduplicateStagedWorkspacePackages(staging: string, worksp
   const duplicates: string[] = []
   for (const [identity, locations] of Object.entries(manifest.hoistedLocations)) {
     const paths = locations.map((location) => {
-      const path = resolve(workspace, location)
+      if (isAbsolute(location)) {
+        throw new Error(`${file}: hoistedLocations path is absolute: ${location}`)
+      }
+      // pnpm's legacy deploy writes paths relative to the workspace root, while
+      // shared-lock deploy writes paths relative to the deployed project root.
+      // Accept either format only when its resolved target stays inside the payload.
+      const candidates = [resolve(workspace, location), resolve(staging, location)]
+      const path = candidates.find((candidate) => {
+        const local = relative(modules, candidate)
+        return local !== '' && local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local)
+      })
+      if (path === undefined) {
+        throw new Error(`${file}: hoistedLocations path is outside deployed node_modules: ${location}`)
+      }
       const local = relative(modules, path)
       if (local === '' || local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) {
         throw new Error(`${file}: hoistedLocations path is outside deployed node_modules: ${location}`)

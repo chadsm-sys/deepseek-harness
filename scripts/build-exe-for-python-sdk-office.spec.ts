@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { c as tar } from 'tar'
-import { downloadOfficeSidecar, runtimeNpmArchive } from './build-exe-for-python-sdk-office.ts'
+import { downloadOfficeSidecar, officeSidecarArchives, runtimeNpmArchive } from './build-exe-for-python-sdk-office.ts'
 
 import { officePackageDirectories } from './libreoffice-packages.mjs'
 
@@ -132,6 +132,31 @@ it('downloads pinned npm packages into the sidecar without resolving or executin
   await expect(downloadOfficeSidecar([artifact], destination, cache)).rejects.toThrow('checksum mismatch')
 })
 
+
+it('locks every staged Office dependency and rejects a newly resolved version', async () => {
+  const { root, staging, packageAt } = await fixture()
+  const lockfile = join(root, 'pnpm-lock.yaml')
+  const integrity = `sha512-${Buffer.alloc(64, 7).toString('base64')}`
+  await packageAt('@deepseek-ai/libreoffice-kit', { dependencies: { '@swc/helpers': '^0.5.23' } })
+  await packageAt('@deepseek-ai/libreoffice-kit-wasm')
+  await packageAt('@swc/helpers', { version: '0.5.23' })
+  const identities = ['@deepseek-ai/libreoffice-kit@1.0.0', '@deepseek-ai/libreoffice-kit-wasm@1.0.0', '@swc/helpers@0.5.23']
+  await writeFile(lockfile, JSON.stringify({ packages: Object.fromEntries(
+    identities.map(identity => [identity, { resolution: { integrity } }]),
+  ) }))
+
+  const archives = await officeSidecarArchives(staging, { platform: 'linux', arch: 'arm64' }, lockfile)
+  expect(archives.map(({ name, version, directory }) => ({ name, version, directory }))).toEqual([
+    { name: '@deepseek-ai/libreoffice-kit', version: '1.0.0', directory: 'node_modules/@deepseek-ai/libreoffice-kit' },
+    { name: '@deepseek-ai/libreoffice-kit-wasm', version: '1.0.0', directory: 'node_modules/@deepseek-ai/libreoffice-kit-wasm' },
+    { name: '@swc/helpers', version: '0.5.23', directory: 'node_modules/@swc/helpers' },
+  ])
+  expect(archives.every(archive => archive.integrity === integrity)).toBe(true)
+
+  await packageAt('@swc/helpers', { version: '0.5.24' })
+  await expect(officeSidecarArchives(staging, { platform: 'linux', arch: 'arm64' }, lockfile))
+    .rejects.toThrow('missing SHA-512 integrity for @swc/helpers@0.5.24')
+})
 
 it('takes npm integrity from the workspace lock without querying registry metadata', async () => {
   const { root } = await fixture()

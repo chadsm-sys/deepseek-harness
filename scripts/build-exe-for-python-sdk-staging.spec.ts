@@ -99,6 +99,27 @@ it('shares an identical workspace package while retaining different peers and th
   expect(fromOther('@fixture/tools')).not.toBe(fromRoot('@fixture/tools'))
 })
 
+it('accepts shared-lock deploy locations relative to the staged project', async () => {
+  const workspace = await fixture('dsh-python-staging-shared-lock-')
+  const staging = join(workspace, 'payload')
+  const modules = join(staging, 'node_modules')
+  const root = join(modules, '@fixture', 'tools')
+  const duplicate = join(modules, 'app', 'node_modules', '@fixture', 'tools')
+  for (const directory of [root, duplicate]) {
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'index.js'), 'exports.scheduler = Symbol("scheduler")\n')
+  }
+  const locations = (paths: string[]) => paths.map(path => relative(staging, path))
+  await writeFile(join(modules, '.modules.yaml'), JSON.stringify({ hoistedLocations: {
+    '@fixture/tools@file:///workspace/packages/tools(peer@1)': locations([root, duplicate]),
+  } }))
+
+  await deduplicateStagedWorkspacePackages(staging, workspace)
+
+  expect(existsSync(duplicate)).toBe(false)
+  expect(existsSync(join(root, 'index.js'))).toBe(true)
+})
+
 it('rejects invalid deployment metadata before removing any package', async () => {
   const workspace = await fixture('dsh-python-staging-metadata-')
   const staging = join(workspace, 'payload')
@@ -112,6 +133,7 @@ it('rejects invalid deployment metadata before removing any package', async () =
     {},
     { hoistedLocations: { invalid: [42] } },
     { hoistedLocations: { ...valid, 'other@file:packages/other': [relative(workspace, outside)] } },
+    { hoistedLocations: { 'other@file:packages/other': [outside] } },
   ]) {
     await writeFile(join(modules, '.modules.yaml'), JSON.stringify(invalid))
     await expect(deduplicateStagedWorkspacePackages(staging, workspace)).rejects.toThrow('hoistedLocations')
